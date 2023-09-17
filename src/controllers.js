@@ -22,9 +22,7 @@ export const insertRecords = async (req, res) => {
     const query = `INSERT INTO \`${collection}\` SET ?`
 
     try {
-
         await createOrUpdateSchemaHandler(collection, data);
-
         db.query(query, data, (err, result) => {
             if (err) {
                 console.error("Error adding entry", err);

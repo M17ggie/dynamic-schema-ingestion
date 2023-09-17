@@ -36,7 +36,7 @@ const assignDataTypeHandler = (data) => {
     }
 }
 
-const createTableSQL = (tableName, schema) => {
+const createTableSQL = async (tableName, schema) => {
     const { columns } = schema;
 
     const createTableSQL = `CREATE TABLE IF NOT EXISTS \`${tableName}\` (
@@ -49,28 +49,28 @@ const createTableSQL = (tableName, schema) => {
     )`;
 
     // Execute the SQL query to create the table
-    db.query(createTableSQL, (err, result) => {
-        if (err) {
-            console.error(`Error creating table '${tableName}':`, err);
-        } else {
-            console.log(`Table '${tableName}' created successfully.`);
-        }
-    });
+    try {
+        const result = await db.promise().query(createTableSQL);
+        console.log(`Table '${tableName}' created successfully.`);
+        return result;
+    } catch (err) {
+        console.error(`Error creating table '${tableName}':`, err);
+        throw err;
+    }
 }
 
-const updateMySQLTableSchema = (tableName, schema) => {
-    // Generate ALTER TABLE statements to add new columns
-    console.log("COLUMNS =>", schema)
-    const query = `ALTER TABLE \`${tableName}\` ADD COLUMN IF NOT EXISTS \`${schema.name}\` ${schema.type} ${schema.constraints || ''}`;
+const updateMySQLTableSchema = async (tableName, schema) => {
+    const alterTableSQL = `ALTER TABLE \`${tableName}\` ADD COLUMN IF NOT EXISTS \`${schema.name}\` ${schema.type} ${schema.constraints || ''}`;
 
-    // Execute the SQL queries to add new columns
-    db.query(query, (err, result) => {
-        if (err) {
-            console.error(`Error updating table '${tableName}' schema:`, err);
-        } else {
-            console.log(`Table '${tableName}' schema updated successfully.`);
-        }
-    });
+    // Execute the SQL query to add the new column
+    try {
+        const result = await db.promise().query(alterTableSQL);
+        console.log(`Table '${tableName}' schema updated successfully for column '${schema.name}'.`);
+        return result;
+    } catch (err) {
+        console.error(`Error updating table '${tableName}' schema for column '${schema.name}':`, err);
+        throw err; // Re-throw the error to handle it in the calling function if needed.
+    }
 };
 
 export const doesSchemaExistHandler = (collectionName) => {
@@ -95,58 +95,62 @@ export const createOrUpdateSchemaHandler = async (collectionName, collectionData
             {
                 "name": "id",
                 "type": "INT",
-                "constraints": "PRIMARY KEY AUTO INCREMENT"
+                "constraints": "AUTO_INCREMENT PRIMARY KEY"
             },
         ],
     };
 
+    // Create `schemas` directory if it doesn't exist.
     if (!fs.existsSync(schemaDirectory)) {
         fs.mkdirSync(schemaDirectory);
     }
 
-    try {
-        // Check if the schema file exists
-        if (!fs.existsSync(schemaFilePath)) {
-            // Schema file does not exist, so create it with default schema structure
-            fs.writeFileSync(schemaFilePath, JSON.stringify(defaultSchema, null, 2));
+    // Check if the schema file exists
+    if (!fs.existsSync(schemaFilePath)) {
+        // Schema file does not exist, so create it with default schema structure
+        fs.writeFileSync(schemaFilePath, JSON.stringify(defaultSchema, null, 2));
 
-            // Create a table with the schema
-            createTableSQL(collectionName, defaultSchema);
-            console.log(`Schema for collection '${collectionName}' created.`);
+        // Create a table with the default schema
+        try {
+            await createTableSQL(collectionName, defaultSchema);
+            console.log(`Schema file and Table for collection '${collectionName}' created.`);
+        } catch (error) {
+            console.log(`Failed to create table for ${collectionName}`, error)
+            throw error;
         }
+    }
 
-        // Read the existing schema JSON from the file
-        const schemaContent = await readFileAsync(schemaFilePath, { encoding: 'utf-8' });
+    // Read the existing schema JSON from the file
+    const schemaContent = await readFileAsync(schemaFilePath, { encoding: 'utf-8' });
+    const jsonData = JSON.parse(schemaContent);
+    for (const [fieldName, fieldValue] of Object.entries(collectionData)) {
+        // Check if the field exists in the existing schema
+        const fieldExists = jsonData.columns.some((column) => column.name === fieldName);
+        if (!fieldExists) {
+            // Field doesn't exist, add it to the schema
+            const dataTypeAndConstraints = assignDataTypeHandler(fieldValue);
 
-        const jsonData = JSON.parse(schemaContent);
-        for (const [fieldName, fieldValue] of Object.entries(collectionData)) {
-            // Check if the field exists in the existing schema
-            const fieldExists = jsonData.columns.some((column) => column.name === fieldName);
-            if (!fieldExists) {
-                // Field doesn't exist, add it to the schema
-                const dataTypeAndConstraints = assignDataTypeHandler(fieldValue);
-
-                // Add the new field to the existing schema
-                jsonData.columns.push({
-                    name: fieldName,
-                    type: dataTypeAndConstraints.type,
-                    constraints: dataTypeAndConstraints.constraints,
-                });
-
-                console.log(`Added field '${fieldName}' to schema for collection '${collectionName}'.`);
-
+            // Add the new field to the existing schema
+            jsonData.columns.push({
+                name: fieldName,
+                type: dataTypeAndConstraints.type,
+                constraints: dataTypeAndConstraints.constraints,
+            });
+            try {
                 // Update the SQL table schema
-                updateMySQLTableSchema(collectionName, {
+                await updateMySQLTableSchema(collectionName, {
                     name: fieldName,
                     type: dataTypeAndConstraints.type,
                     constraints: dataTypeAndConstraints.constraints,
                 });
-
+                console.log(`Updated schema for collection '${collectionName}'.`);
                 // Write the updated schema back to the file
                 await writeFileAsync(schemaFilePath, JSON.stringify(jsonData, null, 2), { encoding: 'utf-8' });
+            } catch (error) {
+                console.log("Failed to update schema", error);
+                throw error;
             }
         }
-    } catch (err) {
-        console.error('Error creating or updating schema:', err);
     }
+    return true;
 };
