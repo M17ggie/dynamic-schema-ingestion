@@ -1,11 +1,20 @@
 import mysql from 'mysql2';
+import { fileURLToPath } from 'url';
+import path from "path"
+
+// env
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const envPath = path.resolve(__dirname, 'config', '.env')
+import dotenv from 'dotenv';
+dotenv.config({ path: envPath });
 
 // Create a connection pool (recommended for MySQL)
 const db = mysql.createPool({
     host: 'localhost',
-    user: 'raj-mhatre',
-    password: 'rajmhatre',
-    database: 'my-database',
+    user: process.env.USER_NAME,
+    password: process.env.USER_PASSWORD,
+    database: process.env.DB_NAME,
 });
 
 db.getConnection((err, connection) => {
