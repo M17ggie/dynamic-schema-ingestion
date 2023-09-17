@@ -1,7 +1,6 @@
 import app from "./src/app.js";
 import path from "path"
 import { fileURLToPath } from 'url';
-import db from "./db.js"
 
 // env
 const __filename = fileURLToPath(import.meta.url);
